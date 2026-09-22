@@ -1,0 +1,1249 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 代码生成智能体 · Atoms Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <script>
+      // Tailwind 主题：深色、克制、工程化
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              bg: "#0E1116",
+              surface: "#171B22",
+              surface2: "#1F242D",
+              line: "#2A313C",
+              ink: "#E6EAF0",
+              muted: "#9AA4B2",
+              accent: "#4ADE9B",
+              danger: "#F87171",
+            },
+            fontFamily: {
+              sans: ['"IBM Plex Sans"', "system-ui", "sans-serif"],
+              mono: ['"IBM Plex Mono"', "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; }
+
+      .btn-primary {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        min-height: 40px; padding: 0 16px; border-radius: 8px;
+        border: 1px solid #4ade9b; background: #4ade9b; color: #0e1116;
+        font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .15s ease-out;
+      }
+      .btn-primary:hover:not(:disabled) { opacity: .88; }
+
+      .btn-secondary {
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        min-height: 40px; padding: 0 14px; border-radius: 8px;
+        border: 1px solid #2a313c; background: transparent; color: #e6eaf0;
+        font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s ease-out;
+      }
+      .btn-secondary:hover:not(:disabled) { background: #1f242d; }
+
+      .btn-primary:disabled, .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
+
+      .input-field {
+        margin-top: 6px; width: 100%; min-height: 40px; padding: 8px 12px;
+        border-radius: 10px; border: 1px solid #2a313c; background: #1f242d;
+        color: #e6eaf0; font-size: 14px; outline: none;
+      }
+      .input-field:focus, textarea:focus { border-color: #4ade9b; }
+
+      button:focus-visible, input:focus-visible, textarea:focus-visible {
+        outline: 2px solid #4ade9b; outline-offset: 2px;
+      }
+
+      .spinner {
+        width: 14px; height: 14px; border-radius: 50%;
+        border: 2px solid currentColor; border-top-color: transparent;
+        animation: spin .7s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* 自定义滚动条，保持深色一致性 */
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: #2a313c; border-radius: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+    </style>
+  </head>
+
+  <body class="bg-bg font-sans text-ink antialiased">
+    <!-- 顶栏 -->
+    <header class="flex items-center justify-between border-b border-line px-6 py-3">
+      <div class="flex items-baseline gap-3">
+        <h1 class="text-[18px] font-bold">AI 代码生成智能体</h1>
+        <span class="text-xs text-muted">Atoms Demo 原型</span>
+      </div>
+      <button id="settings-btn" type="button" class="btn-secondary">API 设置</button>
+    </header>
+
+    <!-- 全局错误提示条 -->
+    <div id="alert" class="mx-6 mt-4 hidden items-start gap-3 rounded-[10px] border border-danger/50 bg-danger/10 px-4 py-3 text-sm text-danger">
+      <span id="alert-text" class="flex-1"></span>
+      <button id="alert-close" type="button" aria-label="关闭提示" class="shrink-0 text-danger/80 hover:text-danger">✕</button>
+    </div>
+
+    <!-- 主体：左右分栏 -->
+    <main id="split-main" class="grid gap-0 p-6 lg:grid-cols-[minmax(240px,4fr)_14px_minmax(320px,9fr)]">
+      <!-- 左侧面板 -->
+      <section class="flex min-w-0 flex-col gap-4">
+        <!-- 需求输入 -->
+        <div class="rounded-xl border border-line bg-surface p-4">
+          <label for="prompt" class="mb-1 block text-xs text-muted">需求描述</label>
+          <textarea
+            id="prompt" rows="4" maxlength="2000"
+            placeholder="例如：写一个简易待办网页，可以新增、勾选完成和删除任务"
+            class="w-full resize-y rounded-[10px] border border-line bg-surface2 px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-muted/70"
+          ></textarea>
+          <div class="mt-2 flex items-center justify-between text-xs text-muted">
+            <span id="prompt-count">0 / 2000</span>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="generate-btn" type="button" class="btn-primary">生成应用</button>
+            <button id="modify-btn" type="button" class="btn-secondary" disabled>修改应用</button>
+            <button id="clear-history-btn" type="button" class="btn-secondary">清空历史</button>
+          </div>
+          <p class="mt-2 text-xs text-muted">「修改应用」会在当前已生成的应用上迭代改动，并更新同一条历史记录，不会新增记录。</p>
+        </div>
+
+        <!-- 运行日志 -->
+        <div class="flex flex-col rounded-xl border border-line bg-surface">
+          <div class="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <span class="text-xs text-muted">运行日志</span>
+            <button id="log-clear-btn" type="button" class="btn-secondary !min-h-[28px] !py-0 text-xs">清空日志</button>
+          </div>
+          <ul id="log-list" class="m-0 max-h-[200px] list-none overflow-auto px-4 py-3 text-xs leading-relaxed"></ul>
+          <p id="log-empty" class="px-4 pb-3 text-xs text-muted">暂无日志，生成或修改应用时会实时显示进度。</p>
+        </div>
+
+        <!-- 代码展示区 -->
+        <div class="flex min-h-[260px] flex-col rounded-xl border border-line bg-surface">
+          <div class="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <span class="text-xs text-muted">生成的代码 · index.html</span>
+            <div class="flex gap-2">
+              <button id="copy-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">复制代码</button>
+              <button id="export-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">导出 HTML</button>
+            </div>
+          </div>
+          <pre id="code-view" class="m-0 max-h-[320px] flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-ink/90"><span class="text-muted">生成的完整 HTML 代码会显示在这里。</span></pre>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="rounded-xl border border-line bg-surface p-4">
+          <div class="mb-2 flex items-center justify-between">
+            <span class="text-xs text-muted">历史记录（保存在本机浏览器）</span>
+            <span id="history-count" class="text-xs text-muted">0 条</span>
+          </div>
+          <ul id="history-list" class="flex max-h-[220px] flex-col gap-2 overflow-auto"></ul>
+          <p id="history-empty" class="rounded-[10px] border border-dashed border-line px-4 py-8 text-center text-sm text-muted">
+            还没有生成记录。
+          </p>
+        </div>
+      </section>
+
+      <!-- 拖动分隔条 -->
+      <div id="split-handle" role="separator" aria-orientation="vertical" title="拖动调整左右宽度"
+        class="group hidden cursor-col-resize items-center justify-center lg:flex">
+        <div class="h-24 w-[4px] rounded-full bg-line transition group-hover:bg-muted"></div>
+      </div>
+
+      <!-- 右侧面板 -->
+      <section class="flex min-w-0 flex-col rounded-xl border border-line bg-surface">
+        <div class="flex items-center justify-between border-b border-line px-4 py-2.5">
+          <span class="text-xs text-muted">实时预览</span>
+          <div class="flex gap-2">
+            <button id="cases-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">生成测试用例</button>
+            <button id="refresh-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">刷新预览</button>
+          </div>
+        </div>
+        <div class="relative min-h-[calc(100vh-180px)] flex-1">
+          <iframe id="preview" title="生成结果预览" sandbox="allow-scripts allow-forms allow-modals allow-popups"
+            class="h-full min-h-[calc(100vh-180px)] w-full rounded-b-xl bg-white"></iframe>
+          <div id="preview-placeholder"
+            class="absolute inset-0 flex items-center justify-center rounded-b-xl bg-surface2 text-sm text-muted">
+            生成应用后，这里会实时渲染结果。
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- API 设置弹窗 -->
+    <div id="settings-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+      <div class="w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-[0_8px_24px_rgba(0,0,0,.45)]">
+        <h2 class="text-base font-semibold">API 设置</h2>
+        <p class="mt-1 text-xs text-muted">支持 OpenAI 兼容接口。密钥仅保存在本机浏览器 localStorage，不会上传到任何服务器。</p>
+        <label class="mt-4 block text-xs text-muted" for="api-base">接口地址</label>
+        <input id="api-base" class="input-field" placeholder="https://api.openai.com/v1" />
+        <label class="mt-3 block text-xs text-muted" for="api-key">API Key</label>
+        <input id="api-key" type="password" class="input-field" placeholder="sk-..." />
+        <label class="mt-3 block text-xs text-muted" for="api-model">模型名称</label>
+        <input id="api-model" class="input-field" placeholder="gpt-4o-mini" />
+        <div class="mt-5 flex justify-end gap-2">
+          <button id="settings-cancel" type="button" class="btn-secondary">取消</button>
+          <button id="settings-save" type="button" class="btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 测试用例弹窗 -->
+    <div id="cases-modal" class="pointer-events-none fixed inset-0 z-50 hidden">
+      <div id="cases-panel" class="pointer-events-auto absolute flex max-h-[84vh] w-[min(94vw,64rem)] flex-col rounded-xl border border-line bg-surface shadow-[0_8px_24px_rgba(0,0,0,.45)]">
+        <div id="cases-drag" class="flex cursor-move select-none items-center justify-between border-b border-line px-5 py-3" title="按住拖动窗口">
+          <h2 class="text-base font-semibold">手工测试用例<span class="ml-2 text-xs font-normal text-muted">可拖动</span></h2>
+          <button id="cases-close" type="button" aria-label="关闭弹窗" class="btn-secondary !min-h-[32px] !py-0 text-xs">关闭</button>
+        </div>
+        <div id="cases-body" class="flex-1 overflow-auto px-5 py-4 text-sm leading-relaxed"></div>
+        <div id="cases-resize" class="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize" title="拖动调整窗口大小">
+          <span class="pointer-events-none absolute bottom-1 right-1 h-3 w-3 border-b-2 border-r-2 border-muted"></span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /* ============ 常量与状态 ============ */
+      const STORAGE_HISTORY = "atoms-demo-history";
+      const STORAGE_CONFIG = "atoms-demo-config";
+      const MAX_PROMPT = 2000;
+      const MAX_HISTORY = 20;
+
+      const DEFAULT_CONFIG = {
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "",
+        model: "gpt-4o-mini",
+      };
+
+      /** @type {{id:string,prompt:string,code:string,createdAt:number}[]} */
+      let history = [];
+      let config = { ...DEFAULT_CONFIG };
+      let currentCode = "";
+      /** @type {{code:string,module:string,title:string,precondition:string,steps:string,expected:string}[]} */
+      let currentCases = [];
+      let currentFeatureName = "页面功能";
+      /** 当前代码所属的历史记录 id，用于把用例回写到对应需求 */
+      let currentHistoryId = "";
+
+      const $ = (id) => document.getElementById(id);
+      const el = {
+        prompt: $("prompt"), promptCount: $("prompt-count"),
+        generateBtn: $("generate-btn"), modifyBtn: $("modify-btn"), clearHistoryBtn: $("clear-history-btn"),
+        logList: $("log-list"), logEmpty: $("log-empty"), logClearBtn: $("log-clear-btn"),
+        codeView: $("code-view"), copyBtn: $("copy-btn"), exportBtn: $("export-btn"),
+        historyList: $("history-list"), historyEmpty: $("history-empty"), historyCount: $("history-count"),
+        preview: $("preview"), previewPlaceholder: $("preview-placeholder"),
+        casesBtn: $("cases-btn"), refreshBtn: $("refresh-btn"),
+        alert: $("alert"), alertText: $("alert-text"), alertClose: $("alert-close"),
+        settingsBtn: $("settings-btn"), settingsModal: $("settings-modal"),
+        apiBase: $("api-base"), apiKey: $("api-key"), apiModel: $("api-model"),
+        settingsSave: $("settings-save"), settingsCancel: $("settings-cancel"),
+        casesModal: $("cases-modal"), casesBody: $("cases-body"), casesClose: $("cases-close"),
+      };
+
+      /* ============ 本地存储 ============ */
+      /** 计算代码指纹，用于校验用例是否确实属于该需求 */
+      function codeFingerprint(code) {
+        let h = 5381;
+        for (let i = 0; i < code.length; i += 1) h = ((h * 33) ^ code.charCodeAt(i)) >>> 0;
+        return `${code.length}_${h.toString(36)}`;
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_HISTORY);
+          const parsed = raw ? JSON.parse(raw) : [];
+          if (Array.isArray(parsed)) {
+            history = parsed
+              .filter((h) => h && typeof h.code === "string")
+              .map((h) => {
+                const code = String(h.code ?? "");
+                const fp = codeFingerprint(code);
+                // 旧版本数据没有指纹，或指纹与代码不一致（用例来自别的需求）时一律丢弃用例
+                const valid = h.codeHash === fp;
+                return {
+                  id: String(h.id ?? createId()),
+                  prompt: String(h.prompt ?? ""),
+                  code,
+                  codeHash: fp,
+                  createdAt: Number(h.createdAt) || Date.now(),
+                  featureName: valid ? String(h.featureName ?? "页面功能") : "页面功能",
+                  cases: valid && Array.isArray(h.cases) ? h.cases.map((c, i) => normalizeCase(c, i)) : [],
+                  casesUpdatedAt: valid ? Number(h.casesUpdatedAt) || 0 : 0,
+                };
+              });
+          }
+        } catch { history = []; }
+
+        try {
+          const raw = localStorage.getItem(STORAGE_CONFIG);
+          if (raw) config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+        } catch { config = { ...DEFAULT_CONFIG }; }
+      }
+
+      function saveHistory() {
+        try {
+          localStorage.setItem(STORAGE_HISTORY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+        } catch {
+          showError("本地存储空间不足，历史记录未能完整保存。");
+        }
+      }
+
+      function saveConfig() {
+        localStorage.setItem(STORAGE_CONFIG, JSON.stringify(config));
+      }
+
+      const createId = () => `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      /* ============ 通用 UI 工具 ============ */
+      function showError(message) {
+        el.alertText.textContent = message;
+        el.alert.classList.remove("hidden");
+        el.alert.classList.add("flex");
+      }
+      function hideError() {
+        el.alert.classList.add("hidden");
+        el.alert.classList.remove("flex");
+      }
+      /* ============ 运行日志 ============ */
+      /** @type {{time:number,type:string,text:string}[]} */
+      let logs = [];
+      const LOG_STYLE = {
+        info: { dot: "bg-muted", text: "text-muted", label: "信息" },
+        running: { dot: "bg-brand animate-pulse", text: "text-ink", label: "进行中" },
+        success: { dot: "bg-emerald-500", text: "text-ink", label: "完成" },
+        error: { dot: "bg-danger", text: "text-danger", label: "失败" },
+      };
+
+      function renderLogs() {
+        el.logEmpty.classList.toggle("hidden", logs.length > 0);
+        el.logList.innerHTML = logs
+          .map((item) => {
+            const s = LOG_STYLE[item.type] || LOG_STYLE.info;
+            const d = new Date(item.time);
+            const pad = (n) => String(n).padStart(2, "0");
+            const t = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            return `<li class="flex items-start gap-2 border-b border-line/50 py-1.5 last:border-b-0">
+              <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}"></span>
+              <span class="shrink-0 font-mono text-muted">${t}</span>
+              <span class="shrink-0 rounded border border-line px-1 text-[10px] text-muted">${s.label}</span>
+              <span class="min-w-0 flex-1 break-words ${s.text}">${escapeHtml(item.text)}</span>
+            </li>`;
+          })
+          .join("");
+        el.logList.scrollTop = el.logList.scrollHeight;
+      }
+
+      /** 追加一条运行日志 */
+      function addLog(text, type = "info") {
+        logs.push({ time: Date.now(), type, text });
+        if (logs.length > 200) logs = logs.slice(-200);
+        renderLogs();
+      }
+
+      function clearLogs() {
+        logs = [];
+        renderLogs();
+      }
+
+      function setLoading(button, loading, label) {
+        button.disabled = loading;
+        button.innerHTML = loading ? `<span class="spinner"></span><span>${label}</span>` : label;
+      }
+      function escapeHtml(text) {
+        return String(text).replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+        );
+      }
+      function formatTime(ts) {
+        const d = new Date(ts);
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+
+      /* ============ 渲染 ============ */
+      function renderCode() {
+        el.codeView.innerHTML = currentCode
+          ? escapeHtml(currentCode)
+          : '<span class="text-muted">生成的完整 HTML 代码会显示在这里。</span>';
+      }
+
+      function renderPreview() {
+        const hasCode = Boolean(currentCode.trim());
+        el.previewPlaceholder.classList.toggle("hidden", hasCode);
+        // 使用 srcdoc + sandbox，安全地隔离运行生成的代码
+        el.preview.srcdoc = hasCode ? currentCode : "";
+      }
+
+      function renderHistory() {
+        el.historyList.innerHTML = "";
+        el.historyCount.textContent = `${history.length} 条`;
+        el.historyEmpty.classList.toggle("hidden", history.length > 0);
+
+        history.forEach((item) => {
+          const li = document.createElement("li");
+          li.className = "flex items-start gap-2 rounded-[10px] border border-line bg-surface2 px-3 py-2";
+          li.innerHTML = `
+            <button type="button" data-act="restore" class="min-w-0 flex-1 text-left">
+              <p class="truncate text-sm font-medium">${escapeHtml(item.prompt || "未命名需求")}</p>
+              <p class="mt-0.5 text-xs text-muted">${formatTime(item.createdAt)}${
+                item.cases && item.cases.length ? ` · 用例 ${item.cases.length} 条` : " · 无用例"
+              }</p>
+            </button>
+            <button type="button" data-act="remove" aria-label="删除记录"
+              class="shrink-0 rounded-lg border border-line px-2 py-1 text-xs text-danger hover:bg-surface">✕</button>`;
+
+          li.querySelector('[data-act="restore"]').addEventListener("click", () => {
+            currentCode = item.code;
+            currentHistoryId = item.id;
+            syncCasesFromHistory();
+            el.prompt.value = item.prompt;
+            updatePromptCount();
+            renderCode();
+            renderPreview();
+            syncModifyBtn();
+            addLog(`已切换到历史需求：${item.prompt.slice(0, 30)}${item.prompt.length > 30 ? "…" : ""}，可直接用「修改应用」继续迭代。`, "info");
+            hideError();
+          });
+          li.querySelector('[data-act="remove"]').addEventListener("click", () => {
+            history = history.filter((h) => h.id !== item.id);
+            saveHistory();
+            renderHistory();
+          });
+
+          el.historyList.appendChild(li);
+        });
+      }
+
+      function updatePromptCount() {
+        el.promptCount.textContent = `${el.prompt.value.length} / ${MAX_PROMPT}`;
+      }
+
+      /* ============ AI 调用 ============ */
+      async function callAI(systemPrompt, userPrompt) {
+        if (!config.apiKey) {
+          throw new Error("尚未配置 API Key，请点击右上角「API 设置」填写。");
+        }
+        const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+        // 60 秒超时保护，避免请求长期挂起
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60000);
+
+        let res;
+        try {
+          res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify({
+              model: config.model || DEFAULT_CONFIG.model,
+              temperature: 0.4,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt },
+              ],
+            }),
+            signal: controller.signal,
+          });
+        } catch (error) {
+          throw new Error(
+            error.name === "AbortError"
+              ? "请求超时（60 秒），请稍后重试或更换模型。"
+              : "网络请求失败，请检查接口地址、网络连接或跨域设置。"
+          );
+        } finally {
+          clearTimeout(timer);
+        }
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          const tip = res.status === 401 ? "（API Key 可能无效）" : res.status === 429 ? "（请求过于频繁）" : "";
+          throw new Error(`AI 接口返回错误 ${res.status}${tip}：${text.slice(0, 200)}`);
+        }
+
+        const data = await res.json().catch(() => null);
+        const content = data?.choices?.[0]?.message?.content;
+        if (!content || !content.trim()) throw new Error("AI 返回内容为空，请重试。");
+        return content;
+      }
+
+      /** 从模型回复中提取纯 HTML 代码，去掉 markdown 围栏和解释文字 */
+      function extractHtml(content) {
+        const fence = content.match(/```(?:html)?\s*([\s\S]*?)```/i);
+        let code = (fence ? fence[1] : content).trim();
+        const start = code.search(/<!doctype html|<html/i);
+        if (start > 0) code = code.slice(start);
+        if (!/<html|<body|<div|<script/i.test(code)) {
+          throw new Error("AI 未返回有效的 HTML 代码，请调整需求描述后重试。");
+        }
+        return code;
+      }
+
+      /* ============ 业务动作 ============ */
+      /** 根据是否已有代码，同步「修改应用」按钮可用状态 */
+      function syncModifyBtn() {
+        el.modifyBtn.disabled = !currentCode.trim();
+      }
+
+      function validatePrompt() {
+        const prompt = el.prompt.value.trim();
+        if (!prompt) { showError("请先输入需求描述。"); return null; }
+        if (prompt.length < 4) { showError("需求描述太短，请补充更多细节。"); return null; }
+        if (prompt.length > MAX_PROMPT) { showError(`需求描述不能超过 ${MAX_PROMPT} 字。`); return null; }
+        return prompt;
+      }
+
+      /** 全新生成：新建一条历史记录 */
+      async function handleGenerate() {
+        hideError();
+        const prompt = validatePrompt();
+        if (!prompt) return;
+
+        const startAt = Date.now();
+        setLoading(el.generateBtn, true, "生成中…");
+        addLog(`开始生成应用：${prompt.slice(0, 40)}${prompt.length > 40 ? "…" : ""}`, "running");
+        try {
+          addLog("正在调用 AI 模型生成 HTML 代码…", "running");
+          const content = await callAI(
+            "你是一名前端工程师。只输出一个完整的单文件 HTML 代码，包含内联 CSS 与 JavaScript，不要任何解释文字，不要 markdown 说明。",
+            `请根据以下需求生成一个完整可直接运行的单文件 HTML 网页应用，样式现代简洁，交互可用：${prompt}`
+          );
+          addLog("模型已返回，正在解析并校验 HTML 代码…", "running");
+          currentCode = extractHtml(content);
+          renderCode();
+          renderPreview();
+          syncModifyBtn();
+          addLog("代码解析完成，右侧预览已更新。", "info");
+
+          history = [{
+            id: createId(),
+            prompt,
+            code: currentCode,
+            codeHash: codeFingerprint(currentCode),
+            createdAt: Date.now(),
+          }, ...history].slice(0, MAX_HISTORY);
+          currentHistoryId = history[0].id;
+          history[0].featureName = "页面功能";
+          history[0].cases = [];
+          history[0].casesUpdatedAt = 0;
+          currentCases = [];
+          currentFeatureName = "页面功能";
+          saveHistory();
+          renderHistory();
+          addLog(
+            `生成完成：已创建新历史记录，代码 ${currentCode.length} 字符，耗时 ${((Date.now() - startAt) / 1000).toFixed(1)} 秒。可继续用「修改应用」在此基础上迭代。`,
+            "success"
+          );
+        } catch (error) {
+          showError(error.message);
+          addLog(`生成失败：${error.message}`, "error");
+        } finally {
+          setLoading(el.generateBtn, false, "生成应用");
+        }
+      }
+
+      /** 增量修改：在当前代码上迭代，并原地更新同一条历史记录 */
+      async function handleModify() {
+        hideError();
+        if (!currentCode.trim()) {
+          showError("当前还没有可修改的应用，请先点击「生成应用」。");
+          addLog("修改未执行：当前没有已生成的应用。", "error");
+          return;
+        }
+        const raw = el.prompt.value.trim();
+        if (!raw) {
+          showError("请输入本次要修改的内容，例如「把按钮改成蓝色」「新增一个搜索框」。");
+          addLog("修改未执行：需求描述为空。", "error");
+          return;
+        }
+        const prompt = validatePrompt();
+        if (!prompt) return;
+
+        const item0 = history.find((h) => h.id === currentHistoryId);
+        if (item0 && (item0.prompt || "").trim() === prompt) {
+          showError("需求描述与上一次完全相同，未检测到新的修改点，请补充本次要改动的内容后再试。");
+          addLog("修改未执行：需求描述未变更。", "error");
+          return;
+        }
+
+        const startAt = Date.now();
+        const beforeLen = currentCode.length;
+        setLoading(el.modifyBtn, true, "修改中…");
+        addLog(`开始修改当前应用：${prompt.slice(0, 40)}${prompt.length > 40 ? "…" : ""}`, "running");
+        try {
+          addLog(`已载入当前应用代码（${beforeLen} 字符）作为修改基准。`, "info");
+          addLog("正在调用 AI 模型进行增量修改…", "running");
+          const content = await callAI(
+            "你是一名前端工程师，负责在已有单文件 HTML 应用上做增量修改。必须保留原有未被要求改动的功能与结构，只按需求调整相关部分。" +
+              "如果修改需求与当前应用完全无关、无法对应到页面上的任何元素或功能，或者描述含糊到无法判断要改什么，" +
+              "则不要输出任何代码，只输出一行：UNRELATED: <用中文说明为什么无法修改，并给出建议的描述方式>。" +
+              "否则只输出修改后的完整单文件 HTML 代码，不要任何解释文字，不要 markdown 说明。",
+            `以下是当前应用的完整 HTML 代码：\n\n${currentCode.slice(0, 60000)}\n\n请按以下修改需求改造这个应用，并输出修改后的完整 HTML：${prompt}`
+          );
+          addLog("模型已返回，正在解析并校验修改后的代码…", "running");
+
+          const unrelated = content.trim().match(/^UNRELATED\s*[:：]\s*([\s\S]*)$/i);
+          if (unrelated) {
+            const reason = unrelated[1].trim() || "该需求与当前应用无关。";
+            showError(`无法完成修改：${reason}`);
+            addLog(`修改未执行：需求与当前应用不相关。${reason}`, "error");
+            return;
+          }
+          currentCode = extractHtml(content);
+          renderCode();
+          renderPreview();
+          syncModifyBtn();
+
+          const item = history.find((h) => h.id === currentHistoryId);
+          if (item) {
+            item.prompt = prompt;
+            item.code = currentCode;
+            item.codeHash = codeFingerprint(currentCode);
+            item.createdAt = Date.now();
+            // 代码已变更，旧用例不再匹配，清空以免串号
+            item.cases = [];
+            item.casesUpdatedAt = 0;
+            item.featureName = "页面功能";
+            addLog("已在原历史记录上原地更新，未新增记录。", "info");
+          } else {
+            history = [{
+              id: createId(), prompt, code: currentCode,
+              codeHash: codeFingerprint(currentCode), createdAt: Date.now(),
+              featureName: "页面功能", cases: [], casesUpdatedAt: 0,
+            }, ...history].slice(0, MAX_HISTORY);
+            currentHistoryId = history[0].id;
+            addLog("未找到原历史记录，已创建一条新记录保存结果。", "info");
+          }
+          currentCases = [];
+          currentFeatureName = "页面功能";
+          saveHistory();
+          renderHistory();
+          const diff = currentCode.length - beforeLen;
+          addLog(
+            `修改完成：代码由 ${beforeLen} 字符变为 ${currentCode.length} 字符（${diff >= 0 ? "+" : ""}${diff}），耗时 ${((Date.now() - startAt) / 1000).toFixed(1)} 秒。已更新预览，原有测试用例已失效需重新生成。`,
+            "success"
+          );
+        } catch (error) {
+          showError(error.message);
+          addLog(`修改失败：${error.message}（当前应用代码保持不变）`, "error");
+        } finally {
+          setLoading(el.modifyBtn, false, "修改应用");
+        }
+      }
+
+      /**
+       * 生成测试用例
+       * @param {"reuse"|"append"|"regenerate"} mode
+       *   reuse: 已有用例则直接展示，不调用 AI；append: 在已有基础上补充新用例；regenerate: 全部重新生成
+       */
+      async function handleCases(mode = "reuse") {
+        hideError();
+        if (!currentCode.trim()) { showError("请先生成应用代码，再生成测试用例。"); return; }
+
+        // 始终以当前需求对应的历史记录为唯一数据源，防止沿用上一条需求的用例
+        syncCasesFromHistory();
+
+        // 已有历史用例时直接复用，避免重复消耗接口调用
+        if (mode === "reuse" && currentCases.length) { renderCasesTable(); return; }
+
+        const existing = mode === "append" ? currentCases : [];
+        setLoading(el.casesBtn, true, "生成中…");
+        openCasesModal('<p class="flex items-center gap-2 text-muted"><span class="spinner"></span>正在分析代码并生成测试用例…</p>');
+        try {
+          // 控制上下文长度，避免超长代码导致请求失败
+          const snippet = currentCode.slice(0, 12000);
+          const existingTitles = existing.map((c) => c.title).filter(Boolean);
+          const appendHint = existingTitles.length
+            ? `已有以下用例，请不要重复，只补充 3-6 条新的覆盖点：\n${existingTitles.map((t) => `- ${t}`).join("\n")}\n`
+            : "";
+          const content = await callAI(
+            "你是一名资深测试工程师，产出可直接交付、无需人工二次修改的手工测试用例。只输出 JSON，不要任何解释文字，不要 markdown。",
+            `阅读下面的网页应用代码，输出该页面的主要功能名称和${existingTitles.length ? " 3-6 " : " 5-10 "}条手工测试用例。\n` +
+              `严格输出如下 JSON 对象：{"featureName":"页面主要功能名称（如：待办清单）","cases":[{"code":"TC001","module":"模块业务","title":"用例标题","precondition":"前置条件","steps":"1. xxx\\n2. xxx","expected":"1. xxx\\n2. xxx"}]}。\n` +
+              `硬性格式要求，必须全部满足：\n` +
+              `1. 全部使用简体中文，语句完整通顺，不出现占位符、省略号或“待补充”。\n` +
+              `2. module 填写所属功能模块（如：任务添加、任务列表、数据持久化），2-6 个字。\n` +
+              `3. title 用一句话描述验证目标，以“验证”开头，不超过 30 字。\n` +
+              `4. precondition 写明进入用例前页面已具备的状态，必须是完整句子，无前置条件时写“已打开页面且数据为空”。\n` +
+              `5. steps 必须是可直接执行的操作步骤，每步以“1. ”“2. ”编号并用换行分隔，每步只描述一个动作，包含具体的控件名称和输入内容。\n` +
+              `6. expected 必须与 steps 的编号一一对应：steps 有几步，expected 就有几条，编号相同，逐条描述该步操作后的可见结果，禁止合并成一段话。\n` +
+              `7. 不要输出“实际结果”字段。\n` +
+              `用中文填写。${appendHint}代码：\n${snippet}`
+          );
+          const result = parseCases(content);
+          currentFeatureName = result.featureName || currentFeatureName;
+          currentCases = mergeCases(existing, result.cases);
+          persistCases();
+          renderCasesTable();
+        } catch (error) {
+          closeCasesModal();
+          showError(error.message);
+        } finally {
+          setLoading(el.casesBtn, false, "生成测试用例");
+        }
+      }
+
+      /** Excel 表头，顺序与导出列一致 */
+      const CASE_COLUMNS = [
+        "用例编码", "模板业务", "用例标题", "前置条件", "测试步骤", "预期结果",
+        "实际结果", "执行人", "执行日期",
+      ];
+
+      /** 解析模型返回：优先 JSON 对象，退化为 JSON 数组，再退化为按行拆分 */
+      function parseCases(content) {
+        const cleaned = content.replace(/```json|```/g, "").trim();
+        const objStart = cleaned.indexOf("{");
+        const objEnd = cleaned.lastIndexOf("}");
+        if (objStart !== -1 && objEnd > objStart) {
+          try {
+            const parsed = JSON.parse(cleaned.slice(objStart, objEnd + 1));
+            if (Array.isArray(parsed.cases) && parsed.cases.length) {
+              return {
+                featureName: String(parsed.featureName || "页面功能").trim() || "页面功能",
+                cases: parsed.cases.map((c, i) => normalizeCase(c, i)),
+              };
+            }
+          } catch { /* 继续尝试数组解析 */ }
+        }
+        const arrStart = cleaned.indexOf("[");
+        const arrEnd = cleaned.lastIndexOf("]");
+        if (arrStart !== -1 && arrEnd > arrStart) {
+          try {
+            const parsed = JSON.parse(cleaned.slice(arrStart, arrEnd + 1));
+            if (Array.isArray(parsed) && parsed.length) {
+              return { featureName: "页面功能", cases: parsed.map((c, i) => normalizeCase(c, i)) };
+            }
+          } catch { /* 回退到按行解析 */ }
+        }
+        const lines = cleaned.split("\n").map((l) => l.replace(/^[\s\-*\d.、]+/, "").trim()).filter(Boolean);
+        if (!lines.length) throw new Error("AI 返回格式无法解析，请重试。");
+        return { featureName: "页面功能", cases: lines.map((l) => normalizeCase({ title: l })) };
+      }
+
+      /**
+       * 以当前需求对应的历史记录为准同步用例状态。
+       * 若找不到匹配记录，则先按代码内容回找，仍找不到就清空，避免串用其他需求的用例。
+       */
+      function syncCasesFromHistory() {
+        let record = history.find((h) => h.id === currentHistoryId);
+        if (!record) record = history.find((h) => h.code === currentCode);
+        if (record) {
+          currentHistoryId = record.id;
+          currentCases = Array.isArray(record.cases) ? record.cases : [];
+          currentFeatureName = record.featureName || "页面功能";
+        } else {
+          currentHistoryId = "";
+          currentCases = [];
+          currentFeatureName = "页面功能";
+        }
+      }
+
+      /** 合并新旧用例：按标题去重，并重新连续编号 */
+      function mergeCases(existing, incoming) {
+        const seen = new Set(existing.map((c) => c.title.trim()));
+        const merged = [...existing];
+        incoming.forEach((c) => {
+          const key = c.title.trim();
+          if (!key || seen.has(key)) return;
+          seen.add(key);
+          merged.push(c);
+        });
+        return merged.map((c, i) => ({ ...c, code: `TC${String(i + 1).padStart(3, "0")}` }));
+      }
+
+      /** 把当前用例回写到所属历史需求并落地 localStorage */
+      function persistCases() {
+        const record = history.find((h) => h.id === currentHistoryId);
+        if (!record) return;
+        record.cases = currentCases;
+        record.featureName = currentFeatureName;
+        record.codeHash = codeFingerprint(record.code || "");
+        record.casesUpdatedAt = Date.now();
+        saveHistory();
+        renderHistory();
+      }
+
+      /** 补齐用例字段，保证导出列完整 */
+      function normalizeCase(raw, index) {
+        const item = typeof raw === "string" ? { title: raw } : raw || {};
+        const seq = String((index ?? 0) + 1).padStart(3, "0");
+        return {
+          code: String(item.code || `TC${seq}`).trim(),
+          module: String(item.module || "").trim(),
+          title: String(item.title || "").trim(),
+          precondition: String(item.precondition || "").trim(),
+          ...alignStepsAndExpected(item.steps, item.expected),
+        };
+      }
+
+      /** 拆分为条目：兼容换行、"1. "、"1）"等多种编号写法 */
+      function splitItems(text) {
+        const raw = String(text || "").replace(/\r/g, "").trim();
+        if (!raw) return [];
+        let parts = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+        // 模型可能把多步写在同一行，按行内编号再拆一次
+        if (parts.length === 1) {
+          const inline = parts[0].split(/(?=\d+\s*[.、）)]\s*)/).map((s) => s.trim()).filter(Boolean);
+          if (inline.length > 1) parts = inline;
+        }
+        return parts.map((s) => s.replace(/^\d+\s*[.、）)]\s*/, "").trim()).filter(Boolean);
+      }
+
+      /**
+       * 让测试步骤与预期结果严格一一对应：
+       * 统一重新编号；预期条目不足时补占位说明，多余时合并到最后一条。
+       */
+      function alignStepsAndExpected(rawSteps, rawExpected) {
+        const steps = splitItems(rawSteps);
+        const expected = splitItems(rawExpected);
+        if (!steps.length) {
+          return {
+            steps: steps.map((s, i) => `${i + 1}. ${s}`).join("\n"),
+            expected: expected.map((s, i) => `${i + 1}. ${s}`).join("\n"),
+          };
+        }
+        const aligned = [];
+        for (let i = 0; i < steps.length; i += 1) {
+          if (i < steps.length - 1) {
+            aligned.push(expected[i] || "该步操作正常执行，页面无异常提示。");
+          } else {
+            // 多余的预期条目合并到最后一步，避免信息丢失
+            const rest = expected.slice(i).filter(Boolean);
+            aligned.push(rest.length ? rest.join("；") : "该步操作正常执行，页面无异常提示。");
+          }
+        }
+        return {
+          steps: steps.map((s, i) => `${i + 1}. ${s}`).join("\n"),
+          expected: aligned.map((s, i) => `${i + 1}. ${s}`).join("\n"),
+        };
+      }
+
+      /** 渲染用例表格并提供导出入口 */
+      function renderCasesTable() {
+        if (!currentCases.length) {
+          openCasesModal('<p class="text-muted">没有解析到测试用例，请重试。</p>');
+          return;
+        }
+        const rows = currentCases
+          .map(
+            (c, i) => `<tr class="border-b border-line align-top ${i % 2 ? "bg-white/[0.03]" : ""}">
+              <td class="border-r border-line px-2 py-2 break-words">${escapeHtml(c.code)}</td>
+              <td class="border-r border-line px-2 py-2 break-words">${escapeHtml(c.module)}</td>
+              <td class="border-r border-line px-2 py-2 break-words">${escapeHtml(c.title)}</td>
+              <td class="border-r border-line px-2 py-2 break-words">${escapeHtml(c.precondition)}</td>
+              <td class="border-r border-line px-2 py-2 whitespace-pre-line break-words">${escapeHtml(c.steps)}</td>
+              <td class="px-2 py-2 whitespace-pre-line break-words">${escapeHtml(c.expected)}</td>
+            </tr>`
+          )
+          .join("");
+        openCasesModal(
+          `<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+             <span class="text-xs text-muted">主要功能：${escapeHtml(currentFeatureName)} · 共 ${currentCases.length} 条（已保存到该需求）</span>
+             <div class="flex flex-wrap gap-2">
+               <button id="append-cases-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">补充用例</button>
+               <button id="regen-cases-btn" type="button" class="btn-secondary !min-h-[32px] !py-0 text-xs">重新生成</button>
+               <button id="export-cases-btn" type="button" class="btn-primary !min-h-[32px] !py-0 text-xs">导出 Excel</button>
+             </div>
+           </div>
+           <div class="overflow-hidden rounded-lg border border-line">
+             <table class="w-full table-fixed border-collapse text-xs leading-relaxed text-ink/90">
+               <thead><tr class="sticky top-0 z-10 border-b border-line bg-[#1f7a4d] text-left font-bold text-white">
+                 <th class="border-r border-line/40 px-2 py-2 w-[10%] font-bold">用例编码</th>
+                 <th class="border-r border-line/40 px-2 py-2 w-[11%] font-bold">模板业务</th>
+                 <th class="border-r border-line/40 px-2 py-2 w-[17%] font-bold">用例标题</th>
+                 <th class="border-r border-line/40 px-2 py-2 w-[15%] font-bold">前置条件</th>
+                 <th class="border-r border-line/40 px-2 py-2 w-[23%] font-bold">测试步骤</th>
+                 <th class="px-2 py-2 w-[24%] font-bold">预期结果</th>
+               </tr></thead>
+               <tbody>${rows}</tbody>
+             </table>
+           </div>`
+        );
+        const btn = document.getElementById("export-cases-btn");
+        if (btn) btn.addEventListener("click", exportCasesExcel);
+        const appendBtn = document.getElementById("append-cases-btn");
+        if (appendBtn) appendBtn.addEventListener("click", () => handleCases("append"));
+        const regenBtn = document.getElementById("regen-cases-btn");
+        if (regenBtn) regenBtn.addEventListener("click", () => handleCases("regenerate"));
+      }
+
+      /** 导出测试用例为 .xlsx，文件名取页面主要功能名称 */
+      function exportCasesExcel() {
+        if (!currentCases.length) { showError("还没有可导出的测试用例。"); return; }
+        if (typeof XLSX === "undefined") {
+          showError("Excel 组件加载失败，请检查网络后刷新页面重试。");
+          return;
+        }
+        try {
+          const data = [
+            CASE_COLUMNS,
+            ...currentCases.map((c) => [
+              c.code, c.module, c.title, c.precondition, c.steps, c.expected, "", "", "",
+            ]),
+          ];
+          const sheet = XLSX.utils.aoa_to_sheet(data);
+          sheet["!cols"] = [
+            { wch: 10 }, { wch: 14 }, { wch: 28 }, { wch: 24 }, { wch: 40 }, { wch: 40 },
+            { wch: 20 }, { wch: 12 }, { wch: 14 },
+          ];
+          // 单元格自动换行 + 顶端对齐，表头加粗并填充绿色底纹
+          const range = XLSX.utils.decode_range(sheet["!ref"]);
+          for (let r = range.s.r; r <= range.e.r; r += 1) {
+            for (let c = range.s.c; c <= range.e.c; c += 1) {
+              const cell = sheet[XLSX.utils.encode_cell({ r, c })];
+              if (!cell) continue;
+              cell.s = r === 0
+                ? {
+                    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+                    fill: { patternType: "solid", fgColor: { rgb: "1F7A4D" } },
+                    alignment: { wrapText: true, vertical: "center", horizontal: "center" },
+                  }
+                : { alignment: { wrapText: true, vertical: "top" } };
+            }
+          }
+          const book = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(book, sheet, "测试用例");
+          const safeName = (currentFeatureName || "页面功能").replace(/[\\/:*?"<>|]/g, "").trim() || "页面功能";
+          XLSX.writeFile(book, `${safeName}测试用例.xlsx`);
+          hideError();
+        } catch {
+          showError("导出 Excel 失败，请重试。");
+        }
+      }
+
+      /* ============ 弹窗控制 ============ */
+      const openModal = (node) => { node.classList.remove("hidden"); node.classList.add("flex"); };
+      const closeModal = (node) => { node.classList.add("hidden"); node.classList.remove("flex"); };
+
+      function openSettings() {
+        el.apiBase.value = config.baseUrl;
+        el.apiKey.value = config.apiKey;
+        el.apiModel.value = config.model;
+        openModal(el.settingsModal);
+      }
+      function openCasesModal(html) {
+        el.casesBody.innerHTML = html;
+        openModal(el.casesModal);
+        placeCasesPanel();
+      }
+      const closeCasesModal = () => closeModal(el.casesModal);
+
+      /* ============ 用例浮窗拖动与缩放 ============ */
+      const casesPanel = $("cases-panel");
+      const casesDrag = $("cases-drag");
+      const casesResize = $("cases-resize");
+      /** 记录用户拖动后的位置，重开时保持不变 */
+      let casesPos = null;
+      /** 记录用户调整后的窗口尺寸，重开时保持不变 */
+      let casesSize = null;
+
+      const MIN_PANEL_W = 420;
+      const MIN_PANEL_H = 260;
+
+      /** 把浮窗限制在可视区域内 */
+      function clampPos(left, top) {
+        const rect = casesPanel.getBoundingClientRect();
+        const maxLeft = Math.max(0, window.innerWidth - rect.width);
+        const maxTop = Math.max(0, window.innerHeight - rect.height);
+        return {
+          left: Math.min(Math.max(0, left), maxLeft),
+          top: Math.min(Math.max(0, top), maxTop),
+        };
+      }
+
+      /** 应用用户调整过的尺寸，并限制在可视范围内 */
+      function applyCasesSize() {
+        if (!casesSize) return;
+        const left = casesPos ? casesPos.left : 0;
+        const top = casesPos ? casesPos.top : 0;
+        const w = Math.min(Math.max(MIN_PANEL_W, casesSize.width), window.innerWidth - left - 8);
+        const h = Math.min(Math.max(MIN_PANEL_H, casesSize.height), window.innerHeight - top - 8);
+        casesSize = { width: w, height: h };
+        casesPanel.style.width = `${w}px`;
+        casesPanel.style.height = `${h}px`;
+        casesPanel.style.maxHeight = "none";
+      }
+
+      /** 首次打开时靠右显示，避免遮挡左侧需求区 */
+      function placeCasesPanel() {
+        if (!casesPos) {
+          const rect = casesPanel.getBoundingClientRect();
+          casesPos = clampPos(window.innerWidth - rect.width - 24, 72);
+        } else {
+          casesPos = clampPos(casesPos.left, casesPos.top);
+        }
+        casesPanel.style.left = `${casesPos.left}px`;
+        casesPanel.style.top = `${casesPos.top}px`;
+        applyCasesSize();
+      }
+
+      casesDrag.addEventListener("pointerdown", (e) => {
+        // 点击标题栏上的关闭按钮时不触发拖动
+        if (e.target.closest("button")) return;
+        const rect = casesPanel.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+        casesDrag.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+          casesPos = clampPos(ev.clientX - offsetX, ev.clientY - offsetY);
+          casesPanel.style.left = `${casesPos.left}px`;
+          casesPanel.style.top = `${casesPos.top}px`;
+        };
+        const onUp = () => {
+          casesDrag.removeEventListener("pointermove", onMove);
+          casesDrag.removeEventListener("pointerup", onUp);
+        };
+        casesDrag.addEventListener("pointermove", onMove);
+        casesDrag.addEventListener("pointerup", onUp);
+      });
+
+      // 右下角手柄拖动调整窗口大小
+      casesResize.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        const rect = casesPanel.getBoundingClientRect();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startW = rect.width;
+        const startH = rect.height;
+        casesResize.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+          casesSize = {
+            width: startW + (ev.clientX - startX),
+            height: startH + (ev.clientY - startY),
+          };
+          applyCasesSize();
+        };
+        const onUp = () => {
+          casesResize.removeEventListener("pointermove", onMove);
+          casesResize.removeEventListener("pointerup", onUp);
+        };
+        casesResize.addEventListener("pointermove", onMove);
+        casesResize.addEventListener("pointerup", onUp);
+      });
+
+      window.addEventListener("resize", () => {
+        if (!el.casesModal.classList.contains("hidden")) placeCasesPanel();
+      });
+
+      /* ============ 事件绑定 ============ */
+      el.prompt.addEventListener("input", updatePromptCount);
+      el.generateBtn.addEventListener("click", handleGenerate);
+      el.modifyBtn.addEventListener("click", handleModify);
+      el.logClearBtn.addEventListener("click", clearLogs);
+      el.casesBtn.addEventListener("click", () => handleCases("reuse"));
+      el.refreshBtn.addEventListener("click", renderPreview);
+
+      /** 将当前代码导出为可直接运行的 .html 文件 */
+      function handleExport() {
+        if (!currentCode.trim()) { showError("还没有可导出的代码，请先生成应用。"); return; }
+        try {
+          const blob = new Blob([currentCode], { type: "text/html;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `ai-app-${stamp}.html`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+          hideError();
+          el.exportBtn.textContent = "已导出";
+          setTimeout(() => (el.exportBtn.textContent = "导出 HTML"), 1500);
+        } catch {
+          showError("导出失败，请改用「复制代码」手动保存为 .html 文件。");
+        }
+      }
+      el.exportBtn.addEventListener("click", handleExport);
+
+      /** 降级复制：在预览 iframe、非 HTTPS 等受限环境下，用临时 textarea + execCommand */
+      function fallbackCopy(text) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch { ok = false; }
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      /** 复制失败时，选中代码区文本，方便用户手动 Ctrl+C */
+      function selectCodeText() {
+        const range = document.createRange();
+        range.selectNodeContents(el.codeView);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+
+      el.copyBtn.addEventListener("click", async () => {
+        if (!currentCode.trim()) { showError("还没有可复制的代码。"); return; }
+
+        let copied = false;
+        // 优先使用异步剪贴板 API，受限时自动回退
+        if (navigator.clipboard && window.isSecureContext) {
+          try {
+            await navigator.clipboard.writeText(currentCode);
+            copied = true;
+          } catch { copied = false; }
+        }
+        if (!copied) copied = fallbackCopy(currentCode);
+
+        if (copied) {
+          hideError();
+          el.copyBtn.textContent = "已复制";
+          setTimeout(() => (el.copyBtn.textContent = "复制代码"), 1500);
+        } else {
+          selectCodeText();
+          showError("当前环境禁止自动复制，已为你选中代码，请按 Ctrl/Cmd + C 复制。");
+        }
+      });
+
+      el.clearHistoryBtn.addEventListener("click", () => {
+        if (!history.length) return;
+        if (!window.confirm("确定清空全部历史记录？")) return;
+        history = [];
+        saveHistory();
+        // 清空历史时同步重置当前代码、预览、需求输入与测试用例，避免残留脏数据
+        currentCode = "";
+        currentHistoryId = null;
+        currentCases = [];
+        currentFeatureName = "";
+        el.prompt.value = "";
+        updatePromptCount();
+        closeCasesModal();
+        renderHistory();
+        renderCode();
+        renderPreview();
+        syncModifyBtn();
+        clearLogs();
+        hideError();
+      });
+
+      el.alertClose.addEventListener("click", hideError);
+      el.settingsBtn.addEventListener("click", openSettings);
+      el.settingsCancel.addEventListener("click", () => closeModal(el.settingsModal));
+      el.settingsSave.addEventListener("click", () => {
+        const baseUrl = el.apiBase.value.trim() || DEFAULT_CONFIG.baseUrl;
+        if (!/^https?:\/\//i.test(baseUrl)) { showError("接口地址需要以 http:// 或 https:// 开头。"); return; }
+        config = { baseUrl, apiKey: el.apiKey.value.trim(), model: el.apiModel.value.trim() || DEFAULT_CONFIG.model };
+        saveConfig();
+        closeModal(el.settingsModal);
+        hideError();
+      });
+      el.casesClose.addEventListener("click", closeCasesModal);
+
+      // 设置弹窗支持点击遮罩关闭；用例浮窗无遮罩，仅通过关闭按钮或 Esc 关闭
+      el.settingsModal.addEventListener("click", (e) => {
+        if (e.target === el.settingsModal) closeModal(el.settingsModal);
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { closeModal(el.settingsModal); closeCasesModal(); }
+      });
+
+      /* ============ 初始化 ============ */
+      loadState();
+      // 页面加载时自动恢复最近一条需求及其已保存的测试用例
+      if (history.length) {
+        const latest = history[0];
+        currentHistoryId = latest.id;
+        currentCode = latest.code || "";
+        currentCases = Array.isArray(latest.cases) ? latest.cases : [];
+        currentFeatureName = latest.featureName || "页面功能";
+        if (!el.prompt.value) el.prompt.value = latest.prompt || "";
+      }
+      updatePromptCount();
+      renderCode();
+      renderPreview();
+      renderHistory();
+      renderLogs();
+      syncModifyBtn();
+      if (currentCode) addLog("已载入最近一次生成的应用，可直接使用「修改应用」继续迭代。", "info");
+
+      // 左右分栏宽度拖动调节
+      (function initSplitter() {
+        const main = document.getElementById("split-main");
+        const handle = document.getElementById("split-handle");
+        if (!main || !handle) return;
+        const HANDLE_W = 14;
+        const MIN_LEFT = 240;
+        const MIN_RIGHT = 320;
+        const KEY = "ai-gen:split-left";
+
+        function applyLeft(px) {
+          main.style.gridTemplateColumns = px + "px " + HANDLE_W + "px minmax(0,1fr)";
+        }
+        function usableWidth() {
+          return main.clientWidth - 48 - HANDLE_W; // 48 = 左右 p-6 内边距
+        }
+        function clamp(px) {
+          const max = usableWidth() - MIN_RIGHT;
+          return Math.max(MIN_LEFT, Math.min(px, Math.max(MIN_LEFT, max)));
+        }
+        function isDesktop() {
+          return window.matchMedia("(min-width: 1024px)").matches;
+        }
+
+        const saved = parseInt(localStorage.getItem(KEY) || "", 10);
+        if (isDesktop() && Number.isFinite(saved)) applyLeft(clamp(saved));
+
+        let dragging = false;
+        handle.addEventListener("pointerdown", (e) => {
+          if (!isDesktop()) return;
+          dragging = true;
+          handle.setPointerCapture(e.pointerId);
+          document.body.style.userSelect = "none";
+          document.body.style.cursor = "col-resize";
+        });
+        handle.addEventListener("pointermove", (e) => {
+          if (!dragging) return;
+          const left = clamp(e.clientX - main.getBoundingClientRect().left - 24);
+          applyLeft(left);
+        });
+        function endDrag() {
+          if (!dragging) return;
+          dragging = false;
+          document.body.style.userSelect = "";
+          document.body.style.cursor = "";
+          const cur = parseInt(main.style.gridTemplateColumns, 10);
+          if (Number.isFinite(cur)) localStorage.setItem(KEY, String(cur));
+        }
+        handle.addEventListener("pointerup", endDrag);
+        handle.addEventListener("pointercancel", endDrag);
+        handle.addEventListener("dblclick", () => {
+          main.style.gridTemplateColumns = "";
+          localStorage.removeItem(KEY);
+        });
+        window.addEventListener("resize", () => {
+          if (!isDesktop()) {
+            main.style.gridTemplateColumns = "";
+            return;
+          }
+          const cur = parseInt(main.style.gridTemplateColumns, 10);
+          if (Number.isFinite(cur)) applyLeft(clamp(cur));
+        });
+      })();
+    </script>
+  </body>
+</html>
